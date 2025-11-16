@@ -304,6 +304,35 @@ class BinanceClient(BaseExchangeClient):
             self.logger.error(f"❌ Erreur fetch_ohlcv: {e}")
             raise
 
+    def get_ohlcv(
+        self,
+        symbol: Optional[str] = None,
+        timeframe: str = '5m',
+        limit: int = 500,
+        since: Optional[int] = None
+    ) -> list:
+        """
+        Alias pour fetch_ohlcv avec support du paramètre symbol
+
+        Args:
+            symbol: Paire de trading (ignoré - utilise self.symbol pour compatibilité)
+            timeframe: Timeframe ('1m', '5m', '1h', etc.)
+            limit: Nombre de bougies (max 1000)
+            since: Timestamp de début (ms)
+
+        Returns:
+            Liste de listes: [[timestamp, open, high, low, close, volume], ...]
+        """
+        # Note: Le paramètre symbol est accepté pour compatibilité API mais
+        # utilise toujours self.symbol car CCXT est déjà configuré
+        if symbol and symbol != self.symbol:
+            self.logger.warning(
+                f"⚠️  get_ohlcv: Symbole {symbol} différent de {self.symbol}, "
+                f"utilisation de {self.symbol}"
+            )
+
+        return self.fetch_ohlcv(timeframe=timeframe, limit=limit, since=since)
+
     def fetch_historical(
         self,
         timeframe: str = '5m',
@@ -394,18 +423,28 @@ class BinanceClient(BaseExchangeClient):
         return df
 
     @_retry_on_error(max_retries=2)
-    def get_ticker(self) -> Dict:
-        """Récupère ticker actuel"""
+    def get_ticker(self, symbol: Optional[str] = None) -> Dict:
+        """Récupère ticker actuel
+
+        Args:
+            symbol: Paire de trading (défaut: self.symbol)
+
+        Returns:
+            Dict avec bid, ask, last, spread, volume, timestamp
+        """
         self._rate_limit('get_ticker', weight=1)
 
+        # Utiliser le symbole par défaut si non spécifié
+        target_symbol = symbol if symbol else self.symbol
+
         try:
-            ticker = self.exchange.fetch_ticker(self.symbol)
+            ticker = self.exchange.fetch_ticker(target_symbol)
 
             # Gérer volume (quoteVolume ou baseVolume)
             volume = ticker.get('quoteVolume') or ticker.get('baseVolume') or 0
 
             return {
-                'symbol': self.symbol,
+                'symbol': target_symbol,
                 'bid': ticker.get('bid', ticker['last']),
                 'ask': ticker.get('ask', ticker['last']),
                 'last': ticker['last'],
@@ -420,13 +459,31 @@ class BinanceClient(BaseExchangeClient):
             return None
 
     @_retry_on_error(max_retries=2)
-    def get_balance(self) -> Dict:
-        """Récupère solde du compte"""
+    def get_balance(self, currency: Optional[str] = None) -> Dict:
+        """Récupère solde du compte
+
+        Args:
+            currency: Devise spécifique (ex: 'USDT', 'BTC')
+                     Si None, retourne les balances base et quote
+
+        Returns:
+            Si currency spécifié: {'free': float, 'used': float, 'total': float}
+            Sinon: {'base': {...}, 'quote': {...}}
+        """
         self._rate_limit('get_balance', weight=5)
 
         try:
             balance = self.exchange.fetch_balance()
 
+            # Si une devise spécifique est demandée
+            if currency:
+                return {
+                    'free': balance.get(currency, {}).get('free', 0),
+                    'used': balance.get(currency, {}).get('used', 0),
+                    'total': balance.get(currency, {}).get('total', 0),
+                }
+
+            # Sinon retourner le format standard base/quote
             return {
                 'base': {
                     'free': balance.get(self.base, {}).get('free', 0),
@@ -444,6 +501,12 @@ class BinanceClient(BaseExchangeClient):
             if self.testnet:
                 # Sur testnet, retourner balance fictive
                 self.logger.warning(f"⚠️  Balance non disponible sur testnet (normal)")
+                if currency:
+                    # Retourner balance fictive pour la devise demandée
+                    if currency == self.quote:
+                        return {'free': 10000, 'used': 0, 'total': 10000}
+                    else:
+                        return {'free': 0, 'used': 0, 'total': 0}
                 return {
                     'base': {'free': 0, 'used': 0, 'total': 0},
                     'quote': {'free': 10000, 'used': 0, 'total': 10000}

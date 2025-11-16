@@ -345,7 +345,7 @@ class TradeExecutor:
                 entry_price=avg_price,
                 size=position_size,
                 stop_loss=stop_loss,
-                take_profit=[{'price': tp.price, 'level': i+1, 'filled': False} for i, tp in enumerate(take_profit_levels)],
+                take_profits=[tp.price for tp in take_profit_levels],  # Liste de prix floats
                 strategy=signal.strategy,
                 order_id=order['id']
             )

@@ -17,7 +17,9 @@ from data.data_loader import DataLoader
 from data.market_data import MarketData
 from strategies.strategy_manager import StrategyManager
 from execution.trade_executor import TradeExecutor
-from utils.logger import setup_logger
+from execution.position_manager import PositionManager
+from risk.circuit_breaker import CircuitBreaker
+from utils.logger import setup_trading_logger
 
 class QuantumTraderBot:
     """
@@ -37,7 +39,7 @@ class QuantumTraderBot:
             custom_client: Client custom (pour backtest) (optionnel)
         """
 
-        self.logger = setup_logger('QuantumTraderBot')
+        self.logger = setup_trading_logger('QuantumTraderBot')
         self.logger.info("=" * 70)
         self.logger.info("🚀 QUANTUM TRADER PRO - INITIALISATION")
         self.logger.info("=" * 70)
@@ -93,6 +95,14 @@ class QuantumTraderBot:
             # 5. Trade Executor
             self.logger.info("⚡ Initialisation Trade Executor...")
             self.trade_executor = TradeExecutor(self.client, self.config)
+
+            # 6. Position Manager (référence depuis TradeExecutor pour cohérence)
+            self.logger.info("📋 Initialisation Position Manager...")
+            self.position_manager = self.trade_executor.position_manager
+
+            # 7. Circuit Breaker (référence depuis TradeExecutor pour cohérence)
+            self.logger.info("🚦 Initialisation Circuit Breaker...")
+            self.circuit_breaker = self.trade_executor.circuit_breaker
 
             self.initialized = True
             self.logger.info("✅ Tous les composants initialisés")

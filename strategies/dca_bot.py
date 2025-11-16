@@ -25,7 +25,9 @@ class DCABotStrategy(BaseStrategy):
         self.amount_per_interval = dca_cfg.get('amount_per_interval', 100.0)
         self.drop_trigger_percent = dca_cfg.get('drop_trigger_percent', -10.0)
         self.accumulation_target = dca_cfg.get('accumulation_target', 1.0)
-        
+        # Stop loss de sécurité (protection contre crash majeur, très large pour DCA)
+        self.emergency_stop_loss_percent = dca_cfg.get('emergency_stop_loss_percent', 50.0)
+
         # State
         self.last_buy_time = None
         self.total_accumulated = 0.0
@@ -149,7 +151,11 @@ class DCABotStrategy(BaseStrategy):
         
         # Calculer montant
         amount = self.calculate_buy_amount(current_price, dip_severity)
-        
+
+        # Calculer stop_loss de sécurité (très large pour DCA long-terme)
+        # Protection contre crash majeur uniquement
+        emergency_stop_loss = current_price * (1 - self.emergency_stop_loss_percent / 100)
+
         # Créer signal
         signal = Signal(
             timestamp=last.name if hasattr(last, 'name') else datetime.now(),
@@ -158,7 +164,7 @@ class DCABotStrategy(BaseStrategy):
             confidence=0.8 + (dip_severity * 0.05),  # Plus confiant si dip
             entry_price=current_price,
             size=amount,
-            stop_loss=None,  # DCA = pas de SL strict
+            stop_loss=emergency_stop_loss,  # SL large de sécurité (protection crash)
             take_profit=None,  # Hold long terme
             reason=buy_reasons,
             metadata={

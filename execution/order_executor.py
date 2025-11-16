@@ -7,7 +7,7 @@ import time
 from typing import Dict, Optional, List, Tuple
 from enum import Enum
 from datetime import datetime
-from utils.logger import setup_logger
+from utils.logger import setup_trading_logger
 from utils.validators import validate_price as _validate_price_util, safe_division
 
 class OrderType(Enum):
@@ -50,8 +50,8 @@ class OrderExecutor:
         """
         self.client = client
         self.config = config
-        self.logger = setup_logger('OrderExecutor')
-        
+        self.logger = setup_trading_logger('OrderExecutor')
+
         # Configuration d'exécution
         exec_config = config.get('execution', {})
         self.order_type = exec_config.get('order_type', 'limit')
