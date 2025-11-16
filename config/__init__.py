@@ -276,21 +276,64 @@ class ConfigLoader:
         """)
 
 # ============================================================================
-# INSTANCE GLOBALE
+# FONCTIONS UTILITAIRES
 # ============================================================================
 
-def load_config() -> Dict[str, Any]:
-    """Charge et retourne la configuration"""
-    loader = ConfigLoader()
-    loader.display_summary()
+def load_config(config_path: Optional[str] = None, display_summary: bool = True) -> Dict[str, Any]:
+    """
+    Charge et retourne la configuration
+
+    Args:
+        config_path: Chemin vers config.yaml (optionnel)
+        display_summary: Afficher le résumé de configuration
+
+    Returns:
+        Dictionnaire de configuration
+    """
+    loader = ConfigLoader(config_path)
+    if display_summary:
+        loader.display_summary()
     return loader.get()
 
-# Chargement automatique
-try:
-    CONFIG = load_config()
-except Exception as e:
-    print(f"\n❌ ERREUR FATALE DE CONFIGURATION: {e}\n")
-    sys.exit(1)
+
+# Cache pour singleton paresseux
+_config_cache: Optional[Dict[str, Any]] = None
+_config_loader_cache: Optional[ConfigLoader] = None
+
+
+def get_config() -> Dict[str, Any]:
+    """
+    Récupère la configuration (chargement paresseux)
+
+    Charge la configuration une seule fois et la met en cache.
+    Équivalent de l'ancien CONFIG global mais en lazy loading.
+
+    Returns:
+        Dictionnaire de configuration
+    """
+    global _config_cache, _config_loader_cache
+
+    if _config_cache is None:
+        _config_loader_cache = ConfigLoader()
+        _config_loader_cache.display_summary()
+        _config_cache = _config_loader_cache.get()
+
+    return _config_cache
+
+
+def reset_config_cache() -> None:
+    """
+    Reset le cache de configuration
+
+    Utile pour les tests ou rechargement dynamique.
+    """
+    global _config_cache, _config_loader_cache
+    _config_cache = None
+    _config_loader_cache = None
+
+
+# NOTE: Plus de chargement automatique à l'import!
+# Utilisez ConfigLoader() directement ou appelez get_config() pour lazy loading.
 
 # Export
-__all__ = ['CONFIG', 'load_config', 'ConfigLoader', 'ConfigError']
+__all__ = ['load_config', 'get_config', 'reset_config_cache', 'ConfigLoader', 'ConfigError']
