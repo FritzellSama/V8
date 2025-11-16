@@ -19,13 +19,37 @@ class MLMetaModel:
     2. Évalue les performances récentes de chaque stratégie
     3. Sélectionne dynamiquement quelle(s) stratégie(s) utiliser
     4. Ajuste les poids/confidences des signaux
-    
+
     Approches supportées:
     - winner_takes_all: Une seule stratégie (la meilleure)
     - weighted_ensemble: Combiner avec poids dynamiques
     - context_adaptive: Choisir selon contexte marché
     """
-    
+
+    # Mapping stratégie → conditions optimales
+    STRATEGY_CONTEXT_MAP = {
+        'grid': {
+            'optimal_trend': 'neutral',  # Range trading
+            'optimal_volatility': (0.005, 0.025),  # Volatilité moyenne
+            'description': 'Range/Sideways market'
+        },
+        'ichimoku': {
+            'optimal_trend': 'trending',  # Bull ou Bear
+            'optimal_volatility': (0.01, 0.05),  # Volatilité moyenne-haute
+            'description': 'Trending market'
+        },
+        'dca': {
+            'optimal_trend': 'any',  # Fonctionne partout
+            'optimal_volatility': (0.0, 1.0),  # Toute volatilité
+            'description': 'All market conditions'
+        },
+        'ml': {
+            'optimal_trend': 'any',  # Adaptatif
+            'optimal_volatility': (0.01, 0.04),  # Volatilité modérée
+            'description': 'Data-driven adaptation'
+        }
+    }
+
     def __init__(self, config: Dict, performance_tracker: StrategyPerformanceTracker):
         """
         Initialise le meta-model
@@ -140,9 +164,85 @@ class MLMetaModel:
             'current_price': float(current_price),
             'timestamp': datetime.now()
         }
-        
+
         return context
-    
+
+    def _calculate_context_score(self, strategy_name: str, context: Dict) -> float:
+        """
+        Calcule le score de compatibilité stratégie/contexte marché
+
+        Args:
+            strategy_name: Nom de la stratégie
+            context: Contexte marché actuel
+
+        Returns:
+            Score entre 0.0 et 1.0
+        """
+        # Identifier le type de stratégie
+        strategy_type = None
+        for key in self.STRATEGY_CONTEXT_MAP.keys():
+            if key in strategy_name.lower():
+                strategy_type = key
+                break
+
+        if not strategy_type:
+            # Stratégie inconnue: score neutre
+            return 0.5
+
+        strategy_config = self.STRATEGY_CONTEXT_MAP[strategy_type]
+        score = 0.0
+
+        # 1. Score de tendance (50% du score)
+        optimal_trend = strategy_config['optimal_trend']
+        market_trend = context.get('trend', 'neutral')
+
+        if optimal_trend == 'any':
+            trend_score = 0.8  # Bon partout
+        elif optimal_trend == 'neutral' and market_trend == 'neutral':
+            trend_score = 1.0  # Parfait pour range
+        elif optimal_trend == 'trending' and market_trend in ('bullish', 'bearish'):
+            trend_score = 1.0  # Parfait pour trend
+        elif optimal_trend == 'neutral' and market_trend in ('bullish', 'bearish'):
+            trend_score = 0.3  # Grid en trend = mauvais
+        elif optimal_trend == 'trending' and market_trend == 'neutral':
+            trend_score = 0.4  # Ichimoku en range = sous-optimal
+        else:
+            trend_score = 0.5
+
+        score += trend_score * 0.5
+
+        # 2. Score de volatilité (30% du score)
+        vol_min, vol_max = strategy_config['optimal_volatility']
+        current_vol = context.get('volatility', 0.01)
+
+        if vol_min <= current_vol <= vol_max:
+            vol_score = 1.0  # Dans la zone optimale
+        elif current_vol < vol_min:
+            # Trop calme
+            vol_score = max(0.3, current_vol / vol_min)
+        else:
+            # Trop volatile
+            vol_score = max(0.3, vol_max / current_vol)
+
+        score += vol_score * 0.3
+
+        # 3. Score de momentum (20% du score)
+        momentum = abs(context.get('price_momentum_1h', 0))
+
+        if strategy_type == 'grid':
+            # Grid préfère faible momentum
+            momentum_score = max(0.2, 1.0 - momentum * 10)
+        elif strategy_type == 'ichimoku':
+            # Ichimoku préfère fort momentum
+            momentum_score = min(1.0, 0.5 + momentum * 5)
+        else:
+            # Autres: score neutre
+            momentum_score = 0.7
+
+        score += momentum_score * 0.2
+
+        return min(1.0, max(0.0, score))
+
     def select_strategies(
         self,
         all_signals: Dict[str, List],
@@ -298,13 +398,13 @@ class MLMetaModel:
         elif metrics['current_streak'] > 3:
             perf_score *= 1.2  # Bonus si bonne passe
         
-        # 3. Score de contexte (placeholder - à améliorer)
-        # Pour l'instant, toutes les stratégies ont le même contexte score
-        context_score = 0.7
-        
-        # TODO: Implémenter vraie analyse de contexte par stratégie
-        # Exemple: Grid Trading meilleur en range, Ichimoku en trend, etc.
-        
+        # 3. Score de contexte (basé sur compatibilité stratégie/marché)
+        context_score = self._calculate_context_score(strategy_name, context)
+
+        self.logger.debug(
+            f"📊 {strategy_name}: perf={perf_score:.2f}, context={context_score:.2f}"
+        )
+
         # 4. Score final
         final_score = (
             perf_score * (1 - self.context_weight) +
