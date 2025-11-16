@@ -1,0 +1,46 @@
+# Environment files (CRITICAL - contains API keys)
+.env
+*.pem
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Saved ML models (too large for git)
+ml_models/saved_models/*.joblib
+ml_models/saved_models/*.h5
+ml_models/saved_models/*.pkl
+
+# Database
+*.db
+*.sqlite
+data/backups/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Distribution
+dist/
+build/
+*.egg-info/
