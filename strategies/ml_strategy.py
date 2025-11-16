@@ -120,10 +120,10 @@ class MLStrategy(BaseStrategy):
         if not self.models_loaded:
             self.logger.debug("⚠️ Modèles ML non chargés - pas de signaux")
             return []
-        
+
         # Utiliser la timeframe principale
-        main_tf = self.timeframes[0] if self.timeframes else '1h'
-        
+        main_tf = self.timeframes.get('signal', '1h') if self.timeframes else '1h'
+
         if main_tf not in data or len(data[main_tf]) < 100:
             return []
         

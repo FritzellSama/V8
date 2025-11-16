@@ -189,11 +189,11 @@ class FeatureEngineer:
             (df['low_diff'] > df['high_diff']) & (df['low_diff'] > 0),
             df['low_diff'], 0
         )
-        
+
         # ATR pour normalisation
         if 'atr' not in df.columns:
-            df = self._calculate_atr(df, period)
-        
+            df['atr'] = calculate_atr(df, period)
+
         # DI+ et DI-
         df['plus_di'] = 100 * (df['plus_dm'].rolling(period).mean() / df['atr'])
         df['minus_di'] = 100 * (df['minus_dm'].rolling(period).mean() / df['atr'])
@@ -233,15 +233,21 @@ class FeatureEngineer:
         """Calculate Money Flow Index"""
         tp = (df['high'] + df['low'] + df['close']) / 3
         mf = tp * df['volume']
-        
+
         mf_positive = np.where(tp > tp.shift(1), mf, 0)
         mf_negative = np.where(tp < tp.shift(1), mf, 0)
-        
+
         mf_positive_sum = pd.Series(mf_positive).rolling(period).sum()
         mf_negative_sum = pd.Series(mf_negative).rolling(period).sum()
-        
-        df['mfi'] = 100 - (100 / (1 + mf_positive_sum / mf_negative_sum))
-        
+
+        # Protection contre division par zéro
+        money_ratio = np.where(
+            mf_negative_sum != 0,
+            mf_positive_sum / mf_negative_sum,
+            100.0  # Si pas de flux négatif, MFI = 100
+        )
+        df['mfi'] = 100 - (100 / (1 + money_ratio))
+
         return df
     
     def _add_price_patterns(self, df: pd.DataFrame) -> pd.DataFrame:

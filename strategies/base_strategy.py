@@ -135,9 +135,9 @@ class BaseStrategy(ABC):
     
     def get_performance_stats(self) -> Dict:
         """Retourne stats de performance"""
-        win_rate = (self.winning_signals / self.total_signals * 100 
+        win_rate = (self.winning_signals / self.total_signals * 100
                    if self.total_signals > 0 else 0)
-        
+
         return {
             'name': self.name,
             'total_signals': self.total_signals,
@@ -148,5 +148,12 @@ class BaseStrategy(ABC):
             'avg_pnl_per_signal': (self.total_pnl / self.total_signals
                                    if self.total_signals > 0 else 0)
         }
+
+    def reset_performance(self):
+        """Reset all performance tracking"""
+        self.total_signals = 0
+        self.winning_signals = 0
+        self.losing_signals = 0
+        self.total_pnl = 0.0
 
 __all__ = ['BaseStrategy', 'Signal']
