@@ -174,68 +174,145 @@ def setup_logger(
     return logger
 
 class TradingLogger:
-    """Logger spécialisé pour trading avec méthodes utilitaires"""
-    
+    """Logger spécialisé pour trading avec méthodes utilitaires
+
+    Délègue automatiquement vers le logger standard pour les méthodes de base
+    (info, debug, warning, error, critical) tout en ajoutant des méthodes spécialisées.
+    """
+
     def __init__(self, name: str = "TradingLogger"):
         self.logger = setup_logger(name)
-    
-    def trade_opened(self, side: str, symbol: str, size: float, price: float, strategy: str):
-        """Log ouverture de trade"""
-        self.logger.info(
-            f"{'🟢 LONG' if side == 'BUY' else '🔴 SHORT'} "
-            f"{symbol} | Size: {size:.6f} | Price: ${price:.2f} | Strategy: {strategy}"
-        )
-    
+        self.name = name
+
+    # Délégation vers logger standard
+    def info(self, msg, *args, **kwargs):
+        self.logger.info(msg, *args, **kwargs)
+
+    def debug(self, msg, *args, **kwargs):
+        self.logger.debug(msg, *args, **kwargs)
+
+    def warning(self, msg, *args, **kwargs):
+        self.logger.warning(msg, *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        self.logger.error(msg, *args, **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        self.logger.critical(msg, *args, **kwargs)
+
+    def exception(self, msg, *args, **kwargs):
+        self.logger.exception(msg, *args, **kwargs)
+
+    def trade_opened(
+        self,
+        side: str = "",
+        symbol: str = "",
+        size: float = 0.0,
+        price: float = 0.0,
+        strategy: str = "",
+        order_id: str = ""
+    ):
+        """Log ouverture de trade
+
+        Args:
+            side: 'BUY' ou 'SELL' (ou 'long'/'short')
+            symbol: Paire de trading
+            size: Taille de la position
+            price: Prix d'entrée
+            strategy: Nom de la stratégie (optionnel)
+            order_id: ID de l'ordre (optionnel)
+        """
+        # Normaliser side
+        side_upper = side.upper()
+        side_display = '🟢 LONG' if side_upper in ['BUY', 'LONG'] else '🔴 SHORT'
+
+        msg = f"{side_display} {symbol} | Size: {size:.6f} | Price: ${price:.2f}"
+        if strategy:
+            msg += f" | Strategy: {strategy}"
+        if order_id:
+            msg += f" | Order: {order_id}"
+
+        self.logger.info(msg)
+
     def trade_closed(self, symbol: str, pnl: float, pnl_percent: float, duration: str):
         """Log fermeture de trade"""
         emoji = "💰" if pnl > 0 else "💸"
         color = Fore.GREEN if pnl > 0 else Fore.RED
-        
+
         self.logger.info(
             f"{emoji} {color}CLOSED {symbol} | "
             f"PnL: ${pnl:+.2f} ({pnl_percent:+.2f}%) | "
             f"Duration: {duration}{Style.RESET_ALL}"
         )
-    
+
     def stop_loss_hit(self, symbol: str, loss: float):
         """Log stop loss"""
         self.logger.warning(
             f"🛑 STOP LOSS {symbol} | Loss: ${loss:.2f}"
         )
-    
+
     def take_profit_hit(self, symbol: str, profit: float, level: int):
         """Log take profit"""
         self.logger.info(
             f"🎯 TAKE PROFIT {level} {symbol} | Profit: ${profit:.2f}"
         )
-    
+
     def signal_detected(self, signal_type: str, symbol: str, confidence: float):
         """Log signal détecté"""
         self.logger.info(
             f"📊 SIGNAL {signal_type} {symbol} | Confidence: {confidence:.1%}"
         )
-    
+
     def order_executed(self, order_type: str, side: str, symbol: str, filled: float):
         """Log ordre exécuté"""
         self.logger.debug(
             f"✅ ORDER {order_type} {side} {symbol} | Filled: {filled}"
         )
-    
+
     def error_critical(self, error_msg: str, exception: Optional[Exception] = None):
         """Log erreur critique"""
         self.logger.critical(
             f"🚨 CRITICAL ERROR: {error_msg}",
             exc_info=exception
         )
-    
-    def daily_summary(self, trades: int, win_rate: float, pnl: float, balance: float):
-        """Log résumé journalier"""
+
+    def daily_summary(
+        self,
+        total_trades: int = 0,
+        winning_trades: int = 0,
+        losing_trades: int = 0,
+        win_rate: float = 0.0,
+        total_pnl: float = 0.0,
+        balance: float = 0.0,
+        # Compatibilité avec ancienne signature
+        trades: int = None,
+        pnl: float = None
+    ):
+        """Log résumé journalier
+
+        Args:
+            total_trades: Nombre total de trades
+            winning_trades: Nombre de trades gagnants
+            losing_trades: Nombre de trades perdants
+            win_rate: Taux de réussite (0.0 à 1.0)
+            total_pnl: PnL total
+            balance: Balance actuelle (optionnel)
+            trades: Alias pour total_trades (rétrocompatibilité)
+            pnl: Alias pour total_pnl (rétrocompatibilité)
+        """
+        # Rétrocompatibilité
+        if trades is not None:
+            total_trades = trades
+        if pnl is not None:
+            total_pnl = pnl
+
         self.logger.info(
             f"\n{'='*70}\n"
             f"📊 DAILY SUMMARY\n"
-            f"   Trades: {trades}\n"
+            f"   Total Trades: {total_trades}\n"
+            f"   Winning: {winning_trades} | Losing: {losing_trades}\n"
             f"   Win Rate: {win_rate:.1%}\n"
-            f"   PnL: ${pnl:+.2f}\n"
+            f"   Total PnL: ${total_pnl:+.2f}\n"
             f"   Balance: ${balance:.2f}\n"
             f"{'='*70}"
         )
@@ -270,6 +347,19 @@ class TradingLogger:
 # FONCTIONS UTILITAIRES
 # ============================================================================
 
+def setup_trading_logger(name: str = "TradingLogger") -> TradingLogger:
+    """
+    Crée et retourne un TradingLogger avec méthodes spécialisées
+
+    Args:
+        name: Nom du logger
+
+    Returns:
+        TradingLogger avec méthodes info(), trade_opened(), daily_summary(), etc.
+    """
+    return TradingLogger(name)
+
+
 def log_banner(title: str, logger: logging.Logger):
     """Affiche une bannière dans les logs"""
     width = 70
@@ -286,6 +376,7 @@ def log_dict(data: dict, logger: logging.Logger, title: str = "Data"):
 # Export
 __all__ = [
     'setup_logger',
+    'setup_trading_logger',
     'TradingLogger',
     'ColoredFormatter',
     'StructuredFormatter',

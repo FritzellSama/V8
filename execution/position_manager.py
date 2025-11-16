@@ -5,7 +5,7 @@ Gestion complète des positions ouvertes avec tracking et monitoring
 
 from typing import Dict, List, Optional
 from datetime import datetime
-from utils.logger import setup_logger
+from utils.logger import setup_trading_logger
 from models.position import Position, PositionSide, PositionStatus
 
 
@@ -26,8 +26,8 @@ class PositionManager:
             config: Configuration complète du bot
         """
         self.config = config
-        self.logger = setup_logger('PositionManager')
-        
+        self.logger = setup_trading_logger('PositionManager')
+
         # Positions
         self.open_positions: Dict[str, Position] = {}
         self.closed_positions: List[Position] = []
