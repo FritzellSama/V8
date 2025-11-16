@@ -10,6 +10,18 @@ from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 import sys
 
+# Import sécurité (avec fallback si module non disponible)
+try:
+    from utils.security import (
+        APIKeyValidator,
+        SecretsMasker,
+        InputSanitizer,
+        validate_env_security
+    )
+    SECURITY_MODULE_AVAILABLE = True
+except ImportError:
+    SECURITY_MODULE_AVAILABLE = False
+
 class ConfigError(Exception):
     """Erreur de configuration"""
     pass
@@ -185,65 +197,133 @@ class ConfigLoader:
         print("✅ Variables d'environnement injectées")
     
     def _validate(self):
-        """Valide la configuration"""
+        """Valide la configuration avec vérifications de sécurité approfondies"""
         errors = []
-        
-        # Validation Exchange
-        exchange = self.config.get('exchange', {}).get('primary', {})
-        testnet = exchange.get('testnet')
+        warnings = []
 
-        if not exchange.get('api_key'):
+        # =========================================================================
+        # 1. VALIDATION SÉCURITÉ ENVIRONNEMENT
+        # =========================================================================
+        if SECURITY_MODULE_AVAILABLE:
+            print("🔒 Vérification sécurité environnement...")
+            env_ok, env_issues = validate_env_security()
+            for issue in env_issues:
+                if '❌' in issue:
+                    errors.append(issue)
+                elif '⚠️' in issue:
+                    warnings.append(issue)
+
+        # =========================================================================
+        # 2. VALIDATION API KEYS
+        # =========================================================================
+        exchange = self.config.get('exchange', {}).get('primary', {})
+        testnet = exchange.get('testnet', False)
+
+        # API Key
+        api_key = exchange.get('api_key', '')
+        if not api_key:
             errors.append("❌ API Key manquante")
-        
-        if not exchange.get('secret_key'):
-            if testnet :
-                print("✅ Ok")
-            else:
-                errors.append("❌ Secret Key manquante")
-        
-        # Vérifier longueur des clés (Binance keys are ~64 chars)
-        if exchange.get('api_key') and len(exchange['api_key']) < 20:
+        elif SECURITY_MODULE_AVAILABLE:
+            valid, error_msg = APIKeyValidator.validate_binance_api_key(api_key)
+            if not valid:
+                errors.append(f"❌ API Key invalide: {error_msg}")
+        elif len(api_key) < 20:
             errors.append("⚠️  API Key semble invalide (trop courte)")
-        
-        if exchange.get('secret_key') and len(exchange['secret_key']) < 20:
-            errors.append("⚠️  Secret Key semble invalide (trop courte)")
-        
-        # Validation Capital
+
+        # Secret Key (requis pour production HMAC)
+        secret_key = exchange.get('secret_key', '')
+        if not testnet and not secret_key:
+            errors.append("❌ Secret Key requise pour le mode production")
+        elif secret_key and SECURITY_MODULE_AVAILABLE:
+            valid, error_msg = APIKeyValidator.validate_secret_key(secret_key)
+            if not valid:
+                warnings.append(f"⚠️  Secret Key: {error_msg}")
+
+        # Private Key Path (pour testnet RSA)
+        if testnet:
+            private_key_path = exchange.get('private_key_path', '')
+            if private_key_path and SECURITY_MODULE_AVAILABLE:
+                valid, error_msg = APIKeyValidator.validate_private_key_path(private_key_path)
+                if not valid:
+                    warnings.append(f"⚠️  Private Key: {error_msg}")
+            elif not private_key_path and not secret_key:
+                warnings.append("⚠️  Testnet: ni private_key_path ni secret_key configuré")
+
+        # =========================================================================
+        # 3. VALIDATION CAPITAL ET RISQUE
+        # =========================================================================
         capital = self.config.get('capital', {})
-        if capital.get('initial', 0) < 100:
-            errors.append("⚠️  Capital initial < 100 USDT (risqué)")
-        
-        # Validation Risk
+        initial_capital = capital.get('initial', 0)
+
+        if initial_capital <= 0:
+            errors.append("❌ Capital initial doit être > 0")
+        elif initial_capital < 100:
+            warnings.append(f"⚠️  Capital initial faible: ${initial_capital} (recommandé: >= $100)")
+        elif initial_capital > 100000:
+            warnings.append(f"⚠️  Capital élevé: ${initial_capital}. Vérifiez que c'est intentionnel.")
+
         risk = self.config.get('risk', {})
-        if risk.get('max_risk_per_trade_percent', 0) > 5:
-            errors.append("⚠️  Risk per trade > 5% (très risqué!)")
-        
-        if risk.get('max_daily_loss_percent', 0) > 20:
-            errors.append("⚠️  Max daily loss > 20% (extrêmement risqué!)")
-        
-        # Validation Symbols
-        symbol = self.config.get('symbols', {}).get('primary')
+        max_risk = risk.get('max_risk_per_trade_percent', 0)
+        if max_risk <= 0:
+            errors.append("❌ max_risk_per_trade_percent doit être > 0")
+        elif max_risk > 5:
+            warnings.append(f"⚠️  Risque par trade élevé: {max_risk}% (recommandé: <= 2%)")
+
+        max_daily_loss = risk.get('max_daily_loss_percent', 0)
+        if max_daily_loss <= 0:
+            errors.append("❌ max_daily_loss_percent doit être > 0")
+        elif max_daily_loss > 20:
+            warnings.append(f"⚠️  Perte journalière max élevée: {max_daily_loss}% (recommandé: <= 10%)")
+
+        max_positions = risk.get('max_positions_simultaneous', 0)
+        if max_positions <= 0:
+            errors.append("❌ max_positions_simultaneous doit être > 0")
+        elif max_positions > 10:
+            warnings.append(f"⚠️  Beaucoup de positions simultanées: {max_positions}")
+
+        # =========================================================================
+        # 4. VALIDATION SYMBOL
+        # =========================================================================
+        symbol = self.config.get('symbols', {}).get('primary', '')
         if not symbol:
             errors.append("❌ Symbol principal manquant")
+        elif SECURITY_MODULE_AVAILABLE:
+            try:
+                sanitized = InputSanitizer.sanitize_symbol(symbol)
+                self.config['symbols']['primary'] = sanitized  # Utiliser version nettoyée
+            except ValueError as e:
+                errors.append(f"❌ Symbol invalide: {e}")
         elif '/' not in symbol:
             errors.append(f"❌ Symbol invalide: {symbol} (format: BASE/QUOTE)")
-        
-        if errors:
+
+        # =========================================================================
+        # 5. AFFICHAGE DES RÉSULTATS
+        # =========================================================================
+        if errors or warnings:
             print("\n" + "="*70)
-            print("❌ ERREURS DE CONFIGURATION")
+            if errors:
+                print("❌ ERREURS DE CONFIGURATION")
+            else:
+                print("⚠️  AVERTISSEMENTS DE CONFIGURATION")
             print("="*70)
+
             for error in errors:
                 print(f"  {error}")
+            for warning in warnings:
+                print(f"  {warning}")
+
             print("="*70)
-            
-            if any("❌" in e for e in errors):
+
+            if errors:
                 print("\n⛔ Erreurs critiques détectées. Arrêt du programme.")
                 sys.exit(1)
             else:
                 print("\n⚠️  Warnings détectés. Continuez à vos risques et périls.")
-                input("Appuyez sur Entrée pour continuer...")
+                # En mode non-interactif, on continue après affichage des warnings
+                if sys.stdin.isatty():
+                    input("Appuyez sur Entrée pour continuer...")
         else:
-            print("✅ Configuration validée")
+            print("✅ Configuration validée avec succès")
     
     def get(self) -> Dict[str, Any]:
         """Retourne la configuration complète"""
