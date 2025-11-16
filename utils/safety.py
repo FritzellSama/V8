@@ -15,6 +15,121 @@ logger = setup_logger('Safety')
 
 
 # ============================================================================
+# THREAD-SAFE COUNTERS
+# ============================================================================
+
+class ThreadSafeCounter:
+    """Compteur thread-safe pour statistiques et métriques"""
+
+    def __init__(self):
+        self._counters: Dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def increment(self, name: str, value: int = 1) -> int:
+        """
+        Incrémente un compteur de manière thread-safe
+
+        Args:
+            name: Nom du compteur
+            value: Valeur à ajouter
+
+        Returns:
+            Nouvelle valeur du compteur
+        """
+        with self._lock:
+            if name not in self._counters:
+                self._counters[name] = 0
+            self._counters[name] += value
+            return self._counters[name]
+
+    def get(self, name: str) -> int:
+        """Récupère la valeur d'un compteur"""
+        with self._lock:
+            return self._counters.get(name, 0)
+
+    def reset(self, name: str) -> None:
+        """Reset un compteur"""
+        with self._lock:
+            self._counters[name] = 0
+
+    def get_all(self) -> Dict[str, int]:
+        """Récupère tous les compteurs"""
+        with self._lock:
+            return self._counters.copy()
+
+
+# Instance globale pour compteurs
+global_counters = ThreadSafeCounter()
+
+
+# ============================================================================
+# ORDER QUEUE (THREAD-SAFE)
+# ============================================================================
+
+class OrderQueue:
+    """
+    File d'attente thread-safe pour les ordres
+    """
+
+    def __init__(self, max_size: int = 100):
+        self.queue: List[Dict] = []
+        self.max_size = max_size
+        self.lock = threading.RLock()
+        self.not_empty = threading.Condition(self.lock)
+        self.not_full = threading.Condition(self.lock)
+
+    def put(self, order: Dict, timeout: Optional[float] = None) -> bool:
+        """
+        Ajoute un ordre à la queue
+
+        Args:
+            order: Ordre à ajouter
+            timeout: Timeout en secondes
+
+        Returns:
+            True si ajouté avec succès
+        """
+        with self.not_full:
+            while len(self.queue) >= self.max_size:
+                if not self.not_full.wait(timeout):
+                    return False
+
+            self.queue.append(order)
+            self.not_empty.notify()
+            return True
+
+    def get(self, timeout: Optional[float] = None) -> Optional[Dict]:
+        """
+        Récupère un ordre de la queue
+
+        Args:
+            timeout: Timeout en secondes
+
+        Returns:
+            Ordre ou None si timeout
+        """
+        with self.not_empty:
+            while not self.queue:
+                if not self.not_empty.wait(timeout):
+                    return None
+
+            order = self.queue.pop(0)
+            self.not_full.notify()
+            return order
+
+    def size(self) -> int:
+        """Retourne la taille de la queue"""
+        with self.lock:
+            return len(self.queue)
+
+    def clear(self) -> None:
+        """Vide la queue"""
+        with self.lock:
+            self.queue.clear()
+            self.not_full.notify_all()
+
+
+# ============================================================================
 # THREAD SAFETY - Locks centralisés
 # ============================================================================
 
@@ -556,11 +671,81 @@ def safe_execute_with_retry(
     return None
 
 
+class ThreadSafetyManager:
+    """
+    Gestionnaire de sécurité des threads - Wrapper de compatibilité
+
+    Cette classe fournit une interface compatible avec l'ancien ThreadSafetyManager
+    tout en utilisant GlobalLockManager en interne.
+    """
+
+    def __init__(self):
+        self.logger = logger
+        self._lock_manager = GlobalLockManager()
+        self._counters = ThreadSafeCounter()
+        self.logger.info("✅ Thread Safety Manager initialisé")
+
+    @contextmanager
+    def lock(self, resource: str):
+        """
+        Context manager pour lock une ressource
+
+        Usage:
+            with thread_manager.lock('orders'):
+                # Code critique pour ordres
+                pass
+        """
+        with self._lock_manager.lock(resource):
+            yield
+
+    def synchronized_method(self, resource: str):
+        """
+        Décorateur pour synchroniser une méthode entière
+
+        Usage:
+            @thread_manager.synchronized_method('orders')
+            def place_order(self, ...):
+                pass
+        """
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                with self.lock(resource):
+                    return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
+    def increment_counter(self, name: str, value: int = 1) -> int:
+        """Incrémente un compteur de manière thread-safe"""
+        return self._counters.increment(name, value)
+
+    def get_counter(self, name: str) -> int:
+        """Récupère la valeur d'un compteur"""
+        return self._counters.get(name)
+
+    def reset_counter(self, name: str) -> None:
+        """Reset un compteur"""
+        self._counters.reset(name)
+
+
+# Instance globale pour compatibilité
+thread_manager = ThreadSafetyManager()
+
+
 __all__ = [
     # Thread Safety
     'GlobalLockManager',
     'global_locks',
     'synchronized',
+    'ThreadSafetyManager',
+    'thread_manager',
+
+    # Thread-Safe Counters
+    'ThreadSafeCounter',
+    'global_counters',
+
+    # Order Queue
+    'OrderQueue',
 
     # Safe DataFrame
     'safe_dataframe_access',

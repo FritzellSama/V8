@@ -687,17 +687,22 @@ class BinanceClient(BaseExchangeClient):
                     pass
 
             # Recréer connexion
-            self._create_exchange()
+            self._initialize_exchange()
 
             # Tester
             if self.test_connectivity():
                 self.logger.info("✅ Reconnexion réussie")
+                self.is_connected = True
+                self.connection_errors = 0
                 return True
             else:
+                self.is_connected = False
                 return False
 
         except Exception as e:
             self.logger.error(f"❌ Échec reconnexion: {e}")
+            self.is_connected = False
+            self.connection_errors += 1
             return False
 
     def __del__(self):
@@ -707,6 +712,19 @@ class BinanceClient(BaseExchangeClient):
                 self.exchange.close()
             except Exception:
                 pass
+
+    # =========================================================================
+    # ALIASES POUR COHÉRENCE AVEC CCXT
+    # =========================================================================
+
+    def fetch_ticker(self, symbol: Optional[str] = None) -> Dict:
+        """Alias pour get_ticker (cohérence CCXT)"""
+        return self.get_ticker(symbol)
+
+    def fetch_balance(self, currency: Optional[str] = None) -> Dict:
+        """Alias pour get_balance (cohérence CCXT)"""
+        return self.get_balance(currency)
+
 
 # Export
 __all__ = ['BinanceClient', 'BinanceConnectionError']
